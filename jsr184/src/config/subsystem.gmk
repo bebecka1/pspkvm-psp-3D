@@ -1,0 +1,100 @@
+#
+# JSR 184 (Mobile 3D Graphics) component configuration.
+#
+# This file is included by midp/build/common/makefiles/Subsystems.gmk when
+# USE_JSR_184 is true. It follows the same shape as the other optional JSR
+# components shipped with phoneME (see jsr172/src/config/subsystem.gmk).
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License version 2 only, as
+# published by the Free Software Foundation.
+#
+######################################################################
+
+# Add to global SUBSYSTEMS list
+SUBSYSTEMS += jsr_184
+
+INTERNAL_JSR_184_CLASSES_DIR = $(JSR_184_DIR)/src/classes
+
+# Javadoc
+SUBSYSTEM_JSR184_SOURCEPATH += $(INTERNAL_JSR_184_CLASSES_DIR)
+SUBSYSTEM_JSR184_PACKAGES    = javax.microedition.m3g
+
+MIDP_JAVADOC_SOURCEPATH += $(SUBSYSTEM_JSR184_SOURCEPATH)
+MIDP_JAVADOC_PACKAGES   += $(SUBSYSTEM_JSR184_PACKAGES)
+
+MIDP_JAVADOC_ALL += \
+	-group "JSR184 Mobile 3D Graphics" \
+	$(shell echo $(SUBSYSTEM_JSR184_PACKAGES) | tr ' ' $(PATHSEP))
+
+# Java files for the ( jsr_184 ) module
+SUBSYSTEM_JSR_184_JAVA_FILES := \
+	$(shell (find $(INTERNAL_JSR_184_CLASSES_DIR) -name '*.java' | egrep -v 'SCCS'))
+
+######################################################################
+# Native code
+#
+# SubsystemDefs.gmk turns SUBSYSTEM_JSR_184_NATIVE_FILES into objects of
+# libmidp.a (via JTWI_NATIVE_FILES; see docker/patches/0037), and it looks the
+# sources up by bare basename through vpath -- the same arrangement jsr179
+# uses at jsr179/src/config/subsystem.gmk:111-115.
+######################################################################
+
+INTERNAL_JSR_184_NATIVE_DIR = $(JSR_184_DIR)/src/native
+
+vpath % $(INTERNAL_JSR_184_NATIVE_DIR)
+
+SUBSYSTEM_JSR_184_NATIVE_FILES = \
+	m3g_loader_kni.c \
+	m3g_graphics3d_kni.c \
+	m3g_object_kni.c
+
+# The natives call the M3G engine through m3g/inc/M3G/m3g_psp.h. The engine
+# itself is a separate static library built ahead of MIDP (m3g/Makefile) and
+# linked into the ELF by docker/patches/0042; only its headers are needed here.
+SUBSYSTEM_JSR_184_EXTRA_INCLUDES = -I$(JSR_184_DIR)/../m3g/inc
+
+# Graphics3D.bindTarget is handed an lcdui Graphics, and the pixels it draws
+# into are reached exactly the way MIDP's own drawing natives reach them --
+# Graphics -> Image -> ImageData -> the 16-bit buffer. That needs the three
+# headers those natives use; see the note above m3gTargetBuffer in
+# jsr184/src/native/m3g_graphics3d_kni.c for why the screen buffer alone is
+# not enough.
+SUBSYSTEM_JSR_184_EXTRA_INCLUDES += \
+	-I$(SUBSYSTEM_LOWUI_DIR)/graphics_api/include \
+	-I$(SUBSYSTEM_LOWUI_DIR)/image_api/include \
+	-I$(SUBSYSTEM_LOWUI_DIR)/graphics/gx_putpixel/include
+
+# TEMPORARY -- per-load tracing. Remove once the stall is located.
+#
+# Without it m3gReportArena logs the first successful load and then goes quiet,
+# so a log showing one "M3G: load" says nothing about how many scenes were
+# actually parsed. With the title now parked with no runnable Java thread, the
+# question is whether loading progresses at all, and that needs the begin/end
+# marker on every load rather than on the first.
+# SUBSYSTEM_JSR_184_EXTRA_INCLUDES += -DM3G_TRACE   (diagnostic, off)
+
+# TEMPORARY -- per-frame timing breakdown, one log line per 128 frames.
+# Says which stage of the frame the time is going into; remove once the
+# frame rate is where it needs to be.
+# SUBSYSTEM_JSR_184_EXTRA_INCLUDES += -DM3G_PSP_FRAME_TIMING   (off for release)
+
+# TEMPORARY -- per-thread CPU census, one block per 128 frames.
+#
+# The frame timing above can only see the thread it runs on, so everything
+# else -- above all SDL's audio thread, where Timidity synthesises MIDI in
+# software -- lands in its unattributed residue.  This reads the kernel's own
+# per-thread runClocks instead, which attributes the whole machine.
+#
+# Needs the PSP SDK headers on the include path for SceKernelThreadInfo;
+# nothing else in this subsystem does, so the -I comes with the switch.
+# SUBSYSTEM_JSR_184_EXTRA_INCLUDES += -DM3G_PSP_THREAD_CENSUS   (off for release)
+# SUBSYSTEM_JSR_184_EXTRA_INCLUDES += -I$(GNU_TOOLS_DIR)/sdk/include  (census only)
+
+# TEMPORARY -- paints the seed magenta so the stray coloured regions can be
+# attributed to it or ruled out in a single frame. Remove after the answer.
+# SUBSYSTEM_JSR_184_EXTRA_INCLUDES += -DM3G_PSP_SEED_PROBE   (answered: the stray regions ARE seed)
+
+# SubsystemDefs.gmk's JSR-184 block only forwards the file lists, so -- as in
+# jsr179/src/config/subsystem.gmk:189 -- the include path is added here.
+EXTRA_INCLUDES += $(SUBSYSTEM_JSR_184_EXTRA_INCLUDES)
