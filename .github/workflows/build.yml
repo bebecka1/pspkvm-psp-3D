@@ -1,0 +1,69 @@
+﻿name: build-psp-eboot
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PSPKVM_REPO: https://github.com/vadosnaprimer/pspkvm.git
+  PSPKVM_SHA: 15b93ccb82048d4ae12510ef65666bc13c79c252
+  M3GCORE_REPO: https://github.com/toaarnio/m3gcore.git
+  M3GCORE_SHA: 1b921b3ae476b27d7359083babcbfab81d6e532f
+  PSPGL_REPO: https://github.com/pspdev/pspgl.git
+  PSPGL_SHA: de4260adf56d06516ec46018d404ca77e0b61748
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout build harness
+        uses: actions/checkout@v4
+
+      - name: Fetch pinned pspkvm source
+        run: |
+          git clone --filter=blob:none "$PSPKVM_REPO" src
+          git -C src checkout "$PSPKVM_SHA"
+
+      - name: Fetch pinned m3gcore source
+        run: |
+          git clone --filter=blob:none "$M3GCORE_REPO" m3gcore
+          git -C m3gcore checkout "$M3GCORE_SHA"
+
+      - name: Fetch pinned pspgl source
+        run: |
+          git clone --filter=blob:none "$PSPGL_REPO" pspgl
+          git -C pspgl checkout "$PSPGL_SHA"
+
+      - name: Build Docker image
+        run: docker build -t pspkvm-build ./docker
+
+      - name: Build EBOOT.PBP
+        run: |
+          docker run --rm \
+            -v "$PWD/src:/work/pspkvm" \
+            -v "$PWD/docker/patches:/work/patches:ro" \
+            -v "$PWD/docker/patches-pspgl:/work/patches-pspgl:ro" \
+            -v "$PWD/jsr184:/work/components/jsr184:ro" \
+            -v "$PWD/m3g:/work/components/m3g:ro" \
+            -v "$PWD/amr:/work/components/amr:ro" \
+            -v "$PWD/m3gcore:/work/m3gcore:ro" \
+            -v "$PWD/pspgl:/work/pspgl:ro" \
+            pspkvm-build
+
+      - name: Package PSPKVM folder
+        run: |
+          mkdir -p dist/PSP/GAME/PSPKVM
+          cp src/psp/EBOOT.PBP dist/PSP/GAME/PSPKVM/EBOOT.PBP
+          if [ -d runtime ]; then cp -R runtime/. dist/PSP/GAME/PSPKVM/ || true; fi
+          (cd dist && zip -r ../PSPKVM-PSP-first3d.zip PSP)
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pspkvm-psp-first3d
+          path: |
+            src/psp/EBOOT.PBP
+            PSPKVM-PSP-first3d.zip
+          if-no-files-found: warn
